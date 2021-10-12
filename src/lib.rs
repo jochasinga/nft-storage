@@ -32,11 +32,7 @@ mod tests {
         };
 
         let cid = storage_client.store(metadata).await?;
-        if let Some(c) = cid {
-            assert!(c.starts_with("bafkrei"));
-        } else {
-            assert!(false);
-        }
+        assert!(cid.starts_with("bafkrei"));
 
         Ok(())
     }

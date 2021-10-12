@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::Value;
 use reqwest::{header, Body};
-// use std::{fs::File, io::Read};
 use anyhow::Result;
 use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
@@ -44,8 +43,8 @@ impl Default for JWTClaim {
 
 #[derive(Clone, Debug)]
 pub struct NFTStorage<'a> {
-    pub(crate) token: &'a str,
-    pub(crate) endpoint: url::Url,
+    pub token: &'a str,
+    pub endpoint: url::Url,
     pub(crate) http_client: reqwest::Client,
 }
 
@@ -54,7 +53,6 @@ pub struct UploadResponse {
     ok: bool,
     value: serde_json::value::Value
 }
-
 
 impl<'a> NFTStorage<'a> {
     pub fn new(token: &'a str, endpoint: Option<url::Url>) -> Result<Self, url::ParseError> {
@@ -72,36 +70,51 @@ impl<'a> NFTStorage<'a> {
         })
     }
 
-    pub async fn store(&self, metadata: Metadata<'a>) -> Result<Option<String>> {
-        // FIXME: Escape hatch for testing
-        if self.endpoint.scheme() == "file" {
-            return Ok(Some("bafkrei".to_string()));
-        }
-
-        let url = self.endpoint.join("/upload")?;
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE, 
-            header::HeaderValue::from_static("application/octet-stream")
-        );
-
-        let res = self.http_client.post(url)
-            .headers(headers)
+    async fn post<T: Into<Body>>(
+        &self,
+        path: &str,
+        body: T,
+        headers: header::HeaderMap,
+    ) -> Result<UploadResponse> {
+        let url = self.endpoint.join(path)?;
+        let resp = self.http_client
+            .post(url)
             .bearer_auth(self.token)
-            .body(file_to_body(metadata.image))
+            .body(body)
+            .headers(headers)
             .send()
             .await?
             .json::<UploadResponse>()
             .await?;
 
-        let mut cid: Option<String> = None;
+        Ok(resp)
+    }
 
-        if let UploadResponse { value: Value::Object(m), .. } = res {
+    pub async fn store(&self, metadata: Metadata<'a>) -> Result<String> {
+        // FIXME: Escape hatch for testing
+        if self.endpoint.scheme() == "file" {
+            return Ok("bafkrei".to_string());
+        }
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/octet-stream")
+        );
+
+        let resp = self.post(
+            "/upload",
+            file_to_body(metadata.image),
+            headers
+        ).await?;
+
+        let mut cid: Option<String> = None;
+        if let UploadResponse { value: Value::Object(m), .. } = resp {
             if let Some(Value::String(s)) = m.get("cid") {
-                cid.replace(s.to_string());
+                cid.replace(s.to_string()).unwrap();
             }
         }
 
-        Ok(cid)
+        Ok(cid.unwrap())
     }
 }
